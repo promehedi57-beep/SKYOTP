@@ -11,8 +11,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # ======================== কনফিগারেশন ========================
-TELEGRAM_TOKEN = "8647348457:AAEi5Kre2Df4Xeig80aZzsd_7zR9MFO739Y"
-TELEGRAM_CHAT_ID = "-1003800508577"
+TELEGRAM_TOKEN = "8671692396:AAGzZfZPNfC5ZRmSnRxaFQcbAjT3s3X_nug"
+TELEGRAM_CHAT_ID = "-1003860008126"
 
 API_BASE_URL = "http://2.58.82.137:5000/api/v1"
 API_KEY = "nxa_99f2f67b13e0e02bca175b1cbc40d57128958702"
@@ -73,7 +73,7 @@ COUNTRY_CODES = {
 
 def get_country_info(phone: str) -> tuple:
     if not phone:
-        return "🌍", "UNKNOWN"
+        return "🌍", "FACEBOOK"
     phone_str = str(phone).strip()
     if not phone_str.startswith("+"):
         phone_str = "+" + phone_str
@@ -94,36 +94,35 @@ def extract_otp(text: str) -> str | None:
     return match.group(0) if match else None
 
 def generate_skypro_number(phone: str) -> str:
-    """সামনে ৩টা + Sky Pro + পেছনে ৩টা সংখ্যা"""
+    """সামনে ৩টা + SKYPRO + পেছনে ৩টা সংখ্যা"""
     p = str(phone).strip().replace("+", "")
     if len(p) >= 6:
         return f"{p[:3]}SKYPRO{p[-3:]}"
     else:
-        return f"Sky Pro{p}"
+        return f"SKYPRO{p}"
 
-def format_telegram_message(otp_code: str, phone: str) -> str:
+def format_telegram_message(otp_code: str, phone: str, category: str = "Unknown") -> str:
     flag, country_short = get_country_info(phone)
     skypro_number = generate_skypro_number(phone)
     
     return (
-        f"🔐 {flag} **{country_short} | SKYPRO**\n\n"
+        f"🔐 {flag} **{country_short} | {category}**\n\n"
         f"`{skypro_number}`\n\n"
-        f"🔑 **OTP:** `{otp_code}`\n\n"
-        f" **POWERED BY [S K Y](https://t.me/ONLYALLSUPPORT)**"
+        f" **POWERED BY [[𝐒𝐊𝐘]](https://t.me/SKYSMSOWNER)**"
     )
 
 def create_buttons(otp_code: str) -> InlineKeyboardMarkup:
     keyboard = [
         [InlineKeyboardButton(f" {otp_code}", copy_text=CopyTextButton(text=otp_code))],
         [
-            InlineKeyboardButton("‼️ 𝑷𝑨𝑵𝑬𝑳", url="https://t.me/ONLYALLSUPPORT"),
+            InlineKeyboardButton("‼️ 𝑷𝑨𝑵𝑬𝑳", url="https://t.me/SKYSMSPRO_BOT"),
             InlineKeyboardButton("📞 𝑪𝑯𝑨𝑵𝑵𝑬𝑳", url="https://t.me/SKYOFFICIALCHANNEL1")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
 
-async def send_telegram_otp(otp_code: str, phone: str):
-    text = format_telegram_message(otp_code, phone)
+async def send_telegram_otp(otp_code: str, phone: str, category: str = "Unknown"):
+    text = format_telegram_message(otp_code, phone, category)
     reply_markup = create_buttons(otp_code)
     try:
         await bot.send_message(
@@ -133,7 +132,7 @@ async def send_telegram_otp(otp_code: str, phone: str):
             reply_markup=reply_markup,
             disable_web_page_preview=True
         )
-        logger.info(f"✅ OTP পাঠানো হয়েছে: {otp_code}")
+        logger.info(f"✅ OTP পাঠানো হয়েছে: {otp_code} | {category}")
     except Exception as e:
         logger.error(f"❌ টেলিগ্রামে পাঠাতে ব্যর্থ: {e}")
 
@@ -162,11 +161,13 @@ async def monitor_loop():
                     if msg_id and msg_id not in processed_ids:
                         sms_text = log.get("sms", "")
                         phone = log.get("phone", log.get("number", ""))
+                        # ক্যাটাগরি (সার্ভিসের নাম) খোঁজা
+                        category = log.get("service") or log.get("app") or log.get("service_name") or "Unknown"
                         otp = extract_otp(sms_text)
                         if otp:
-                            await send_telegram_otp(otp, phone)
+                            await send_telegram_otp(otp, phone, category)
                             processed_ids.append(msg_id)
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)  # আগে 2 ছিল, এখন 1 সেকেন্ড
 
 async def main():
     print("="*50)
