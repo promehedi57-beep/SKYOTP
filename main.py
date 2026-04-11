@@ -106,7 +106,7 @@ def format_telegram_message(otp_code: str, phone: str, category: str = "Unknown"
     skypro_number = generate_skypro_number(phone)
     
     return (
-        f"🔐 {flag} **{country_short} | {FB}**\n\n"
+        f"🔐 {flag} **{country_short} | {category}**\n\n"
         f"`{skypro_number}`\n\n"
         f"🔑 **OTP:** `{otp_code}`\n\n"
         f" **POWERED BY [S K Y](https://t.me/ONLYALLSUPPORT)**"
