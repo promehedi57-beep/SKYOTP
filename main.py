@@ -73,7 +73,7 @@ COUNTRY_CODES = {
 
 def get_country_info(phone: str) -> tuple:
     if not phone:
-        return "🌍", "FACEBOOK"
+        return "🌍", "UNKNOWN"
     phone_str = str(phone).strip()
     if not phone_str.startswith("+"):
         phone_str = "+" + phone_str
@@ -106,9 +106,10 @@ def format_telegram_message(otp_code: str, phone: str, category: str = "Unknown"
     skypro_number = generate_skypro_number(phone)
     
     return (
-        f"🔐 {flag} **{country_short} | {category}**\n\n"
+        f"🔐 {flag} **{country_short} | {FB}**\n\n"
         f"`{skypro_number}`\n\n"
-        f" **POWERED BY [[𝐒𝐊𝐘]](https://t.me/SKYSMSOWNER)**"
+        f"🔑 **OTP:** `{otp_code}`\n\n"
+        f" **POWERED BY [S K Y](https://t.me/ONLYALLSUPPORT)**"
     )
 
 def create_buttons(otp_code: str) -> InlineKeyboardMarkup:
