@@ -2,16 +2,16 @@ import asyncio
 import logging
 import re
 from collections import deque
-from datetime import datetime
+from typing import Optional  # 🔥 Python 3.9 সামঞ্জস্যের জন্য
 
 import aiohttp
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # ======================== কনফিগারেশন ========================
-TELEGRAM_TOKEN = "8647348457:AAEi5Kre2Df4Xeig80aZzsd_7zR9MFO739Y"
+TELEGRAM_TOKEN = "8671692396:AAGzZfZPNfC5ZRmSnRxaFQcbAjT3s3X_nug"
 TELEGRAM_CHAT_ID = "-1003860008126"
 
 API_BASE_URL = "http://2.58.82.137:5000/api/v1"
@@ -89,7 +89,7 @@ bot = Bot(token=TELEGRAM_TOKEN)
 # OTP রেজেক্স
 OTP_REGEX = re.compile(r'\b\d{4,10}\b')
 
-def extract_otp(text: str) -> str | None:
+def extract_otp(text: str) -> Optional[str]:  # 🔥 ফিক্স: str | None → Optional[str]
     match = OTP_REGEX.search(text)
     return match.group(0) if match else None
 
@@ -112,14 +112,16 @@ def format_telegram_message(otp_code: str, phone: str, category: str = "FACEBOOK
     )
 
 def create_buttons(otp_code: str) -> InlineKeyboardMarkup:
+    # 🔥 CopyTextButton এর পরিবর্তে সরাসরি ডিকশনারি ফরম্যাট ব্যবহার করা হয়েছে (সামঞ্জস্যপূর্ণ)
     keyboard = [
-        [InlineKeyboardButton(f" {otp_code}", copy_text=CopyTextButton(text=otp_code))],
+        [{"text": f" {otp_code}", "copy_text": {"text": otp_code}}],
         [
-            InlineKeyboardButton("‼️ 𝑷𝑨𝑵𝑬𝑳", url="https://t.me/SKYSMSPRO_BOT"),
-            InlineKeyboardButton("📞 𝑪𝑯𝑨𝑵𝑵𝑬𝑳", url="https://t.me/SKYOFFICIALCHANNEL1")
+            {"text": "‼️ 𝑷𝑨𝑵𝑬𝑳", "url": "https://t.me/SKYSMSPRO_BOT"},
+            {"text": "📞 𝑪𝑯𝑨𝑵𝑵𝑬𝑳", "url": "https://t.me/SKYOFFICIALCHANNEL1"}
         ]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    # InlineKeyboardMarkup এর পরিবর্তে সরাসরি dict return করলেই bot.send_message এর reply_markup প্যারামিটার গ্রহণ করবে
+    return {"inline_keyboard": keyboard}
 
 async def send_telegram_otp(otp_code: str, phone: str, category: str = "Unknown"):
     text = format_telegram_message(otp_code, phone, category)
@@ -161,13 +163,12 @@ async def monitor_loop():
                     if msg_id and msg_id not in processed_ids:
                         sms_text = log.get("sms", "")
                         phone = log.get("phone", log.get("number", ""))
-                        # ক্যাটাগরি (সার্ভিসের নাম) খোঁজা
                         category = log.get("service") or log.get("app") or log.get("service_name") or "Unknown"
                         otp = extract_otp(sms_text)
                         if otp:
                             await send_telegram_otp(otp, phone, category)
                             processed_ids.append(msg_id)
-            await asyncio.sleep(1)  # আগে 2 ছিল, এখন 1 সেকেন্ড
+            await asyncio.sleep(1)
 
 async def main():
     print("="*50)
