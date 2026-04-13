@@ -2,10 +2,10 @@ import asyncio
 import logging
 import re
 from collections import deque
-from typing import Optional  # 🔥 Python 3.9 সামঞ্জস্যের জন্য
+from typing import Optional
 
 import aiohttp
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Bot
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -89,7 +89,7 @@ bot = Bot(token=TELEGRAM_TOKEN)
 # OTP রেজেক্স
 OTP_REGEX = re.compile(r'\b\d{4,10}\b')
 
-def extract_otp(text: str) -> Optional[str]:  # 🔥 ফিক্স: str | None → Optional[str]
+def extract_otp(text: str) -> Optional[str]:
     match = OTP_REGEX.search(text)
     return match.group(0) if match else None
 
@@ -111,8 +111,7 @@ def format_telegram_message(otp_code: str, phone: str, category: str = "FACEBOOK
         f" **POWERED BY [𝐒𝐊𝐘](https://t.me/SKYSMSOWNER)**"
     )
 
-def create_buttons(otp_code: str) -> InlineKeyboardMarkup:
-    # 🔥 CopyTextButton এর পরিবর্তে সরাসরি ডিকশনারি ফরম্যাট ব্যবহার করা হয়েছে (সামঞ্জস্যপূর্ণ)
+def create_buttons(otp_code: str) -> dict:
     keyboard = [
         [{"text": f" {otp_code}", "copy_text": {"text": otp_code}}],
         [
@@ -120,7 +119,6 @@ def create_buttons(otp_code: str) -> InlineKeyboardMarkup:
             {"text": "📞 𝑪𝑯𝑨𝑵𝑵𝑬𝑳", "url": "https://t.me/SKYOFFICIALCHANNEL1"}
         ]
     ]
-    # InlineKeyboardMarkup এর পরিবর্তে সরাসরি dict return করলেই bot.send_message এর reply_markup প্যারামিটার গ্রহণ করবে
     return {"inline_keyboard": keyboard}
 
 async def send_telegram_otp(otp_code: str, phone: str, category: str = "Unknown"):
@@ -141,7 +139,8 @@ async def send_telegram_otp(otp_code: str, phone: str, category: str = "Unknown"
 async def fetch_console_logs(session: aiohttp.ClientSession) -> list:
     url = f"{API_BASE_URL}/console/logs?limit=10"
     try:
-        async with session.get(url, headers=HEADERS, timeout=10) as resp:
+        # দ্রুত রেসপন্স পাওয়ার জন্য টাইমআউট কমানো হয়েছে
+        async with session.get(url, headers=HEADERS, timeout=5) as resp:
             if resp.status == 200:
                 data = await resp.json()
                 if data.get("success") and "data" in data:
@@ -149,12 +148,14 @@ async def fetch_console_logs(session: aiohttp.ClientSession) -> list:
             elif resp.status == 401:
                 logger.error("❌ API Key ভুল!")
     except Exception as e:
-        logger.error(f"ফেচ করতে ব্যর্থ: {e}")
+        pass # দ্রুত লুপ চালানোর জন্য এরর লগিং স্কিপ করা হচ্ছে
     return []
 
 async def monitor_loop():
-    logger.info("🚀 SKY OTP ফরওয়ার্ড বট চালু হয়েছে")
-    async with aiohttp.ClientSession() as session:
+    logger.info("🚀 SKY OTP ফরওয়ার্ড বট সুপারফাস্ট মোডে চালু হয়েছে")
+    # TCP Connector কনফিগার করা হয়েছে যাতে রিকোয়েস্ট আরও ফাস্ট হয়
+    connector = aiohttp.TCPConnector(limit=100, keepalive_timeout=60)
+    async with aiohttp.ClientSession(connector=connector) as session:
         while True:
             logs = await fetch_console_logs(session)
             if logs:
@@ -166,13 +167,16 @@ async def monitor_loop():
                         category = log.get("service") or log.get("app") or log.get("service_name") or "Unknown"
                         otp = extract_otp(sms_text)
                         if otp:
-                            await send_telegram_otp(otp, phone, category)
+                            # ব্যাকগ্রাউন্ড টাস্ক হিসেবে পাঠানো হচ্ছে যাতে লুপ না থামে
+                            asyncio.create_task(send_telegram_otp(otp, phone, category))
                             processed_ids.append(msg_id)
-            await asyncio.sleep(1)
+            
+            # 🔥 এখানে ১ সেকেন্ডের জায়গায় ০.২ সেকেন্ড (২০০ মিলি-সেকেন্ড) করা হয়েছে!
+            await asyncio.sleep(0.2) 
 
 async def main():
     print("="*50)
-    print("🔐 SKY OTP মনিটরিং শুরু হচ্ছে...")
+    print("⚡ SKY OTP সুপারফাস্ট মনিটরিং শুরু হচ্ছে...")
     print("="*50)
     await monitor_loop()
 
