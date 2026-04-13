@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # ======================== কনফিগারেশন ========================
-TELEGRAM_TOKEN = "8671692396:AAGzZfZPNfC5ZRmSnRxaFQcbAjT3s3X_nug"
+TELEGRAM_TOKEN = "8647348457:AAEi5Kre2Df4Xeig80aZzsd_7zR9MFO739Y"
 TELEGRAM_CHAT_ID = "-1003860008126"
 
 API_BASE_URL = "http://2.58.82.137:5000/api/v1"
