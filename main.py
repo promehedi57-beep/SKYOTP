@@ -2,16 +2,16 @@ import asyncio
 import logging
 import re
 from collections import deque
-from typing import Optional
+from datetime import datetime
 
 import aiohttp
-from telegram import Bot
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # ======================== কনফিগারেশন ========================
-TELEGRAM_TOKEN = "8671692396:AAGzZfZPNfC5ZRmSnRxaFQcbAjT3s3X_nug"
+TELEGRAM_TOKEN = "8647348457:AAEi5Kre2Df4Xeig80aZzsd_7zR9MFO739Y"
 TELEGRAM_CHAT_ID = "-1003860008126"
 
 API_BASE_URL = "http://2.58.82.137:5000/api/v1"
@@ -89,7 +89,7 @@ bot = Bot(token=TELEGRAM_TOKEN)
 # OTP রেজেক্স
 OTP_REGEX = re.compile(r'\b\d{4,10}\b')
 
-def extract_otp(text: str) -> Optional[str]:
+def extract_otp(text: str) -> str | None:
     match = OTP_REGEX.search(text)
     return match.group(0) if match else None
 
@@ -105,23 +105,32 @@ def format_telegram_message(otp_code: str, phone: str, category: str = "FACEBOOK
     flag, country_short = get_country_info(phone)
     skypro_number = generate_skypro_number(phone)
     
+    # একটি সুন্দর ও বড় বক্স তৈরি করা
+    top_line = "┏━━━━━━━━━━━━━━━━━━━━┓"
+    mid_line = f"┃ {skypro_number.center(18)} ┃"
+    bot_line = "┗━━━━━━━━━━━━━━━━━━━━┛"
+    
     return (
-        f"🔐 {flag} **{country_short} | {category}**\n\n"
-        f"`{skypro_number}`\n\n"
+        f"☁️ {flag} **{country_short} | {category}**\n\n"
+        f"```text\n"
+        f"{top_line}\n"
+        f"{mid_line}\n"
+        f"{bot_line}\n"
+        f"```\n"
         f" **POWERED BY [𝐒𝐊𝐘](https://t.me/SKYSMSOWNER)**"
     )
 
-def create_buttons(otp_code: str) -> dict:
+def create_buttons(otp_code: str) -> InlineKeyboardMarkup:
     keyboard = [
-        [{"text": f" {otp_code}", "copy_text": {"text": otp_code}}],
+        [InlineKeyboardButton(f" {otp_code}", copy_text=CopyTextButton(text=otp_code))],
         [
-            {"text": "‼️ 𝑷𝑨𝑵𝑬𝑳", "url": "https://t.me/SKYSMSPRO_BOT"},
-            {"text": "📞 𝑪𝑯𝑨𝑵𝑵𝑬𝑳", "url": "https://t.me/SKYOFFICIALCHANNEL1"}
+            InlineKeyboardButton("‼️ 𝑷𝑨𝑵𝑬𝑳", url="https://t.me/SKYSMSPRO_BOT"),
+            InlineKeyboardButton("📞 𝑪𝑯𝑨𝑵𝑵𝑬𝑳", url="https://t.me/SKYOFFICIALCHANNEL1")
         ]
     ]
-    return {"inline_keyboard": keyboard}
+    return InlineKeyboardMarkup(keyboard)
 
-async def send_telegram_otp(otp_code: str, phone: str, category: str = "Unknown"):
+async def send_telegram_otp(otp_code: str, phone: str, category: str = "FACEBOOK"):
     text = format_telegram_message(otp_code, phone, category)
     reply_markup = create_buttons(otp_code)
     try:
@@ -139,8 +148,7 @@ async def send_telegram_otp(otp_code: str, phone: str, category: str = "Unknown"
 async def fetch_console_logs(session: aiohttp.ClientSession) -> list:
     url = f"{API_BASE_URL}/console/logs?limit=10"
     try:
-        # দ্রুত রেসপন্স পাওয়ার জন্য টাইমআউট কমানো হয়েছে
-        async with session.get(url, headers=HEADERS, timeout=5) as resp:
+        async with session.get(url, headers=HEADERS, timeout=10) as resp:
             if resp.status == 200:
                 data = await resp.json()
                 if data.get("success") and "data" in data:
@@ -148,14 +156,12 @@ async def fetch_console_logs(session: aiohttp.ClientSession) -> list:
             elif resp.status == 401:
                 logger.error("❌ API Key ভুল!")
     except Exception as e:
-        pass # দ্রুত লুপ চালানোর জন্য এরর লগিং স্কিপ করা হচ্ছে
+        logger.error(f"ফেচ করতে ব্যর্থ: {e}")
     return []
 
 async def monitor_loop():
-    logger.info("🚀 SKY OTP ফরওয়ার্ড বট সুপারফাস্ট মোডে চালু হয়েছে")
-    # TCP Connector কনফিগার করা হয়েছে যাতে রিকোয়েস্ট আরও ফাস্ট হয়
-    connector = aiohttp.TCPConnector(limit=100, keepalive_timeout=60)
-    async with aiohttp.ClientSession(connector=connector) as session:
+    logger.info("🚀 SKY OTP ফরওয়ার্ড বট চালু হয়েছে")
+    async with aiohttp.ClientSession() as session:
         while True:
             logs = await fetch_console_logs(session)
             if logs:
@@ -164,19 +170,19 @@ async def monitor_loop():
                     if msg_id and msg_id not in processed_ids:
                         sms_text = log.get("sms", "")
                         phone = log.get("phone", log.get("number", ""))
-                        category = log.get("service") or log.get("app") or log.get("service_name") or "Unknown"
+                        
+                        # ক্যাটাগরি (সার্ভিসের নাম) খোঁজা, না পেলে FACEBOOK
+                        category = log.get("service") or log.get("app") or log.get("service_name") or "FACEBOOK"
+                        
                         otp = extract_otp(sms_text)
                         if otp:
-                            # ব্যাকগ্রাউন্ড টাস্ক হিসেবে পাঠানো হচ্ছে যাতে লুপ না থামে
-                            asyncio.create_task(send_telegram_otp(otp, phone, category))
+                            await send_telegram_otp(otp, phone, category)
                             processed_ids.append(msg_id)
-            
-            # 🔥 এখানে ১ সেকেন্ডের জায়গায় ০.২ সেকেন্ড (২০০ মিলি-সেকেন্ড) করা হয়েছে!
-            await asyncio.sleep(0.2) 
+            await asyncio.sleep(1)
 
 async def main():
     print("="*50)
-    print("⚡ SKY OTP সুপারফাস্ট মনিটরিং শুরু হচ্ছে...")
+    print("☁️ SKY OTP মনিটরিং শুরু হচ্ছে...")
     print("="*50)
     await monitor_loop()
 
