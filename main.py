@@ -115,19 +115,19 @@ def format_telegram_message(otp_code: str, phone: str, category: str) -> str:
         cat_short = category.upper()
 
     # বক্সের ভেতরের ডিজাইন: 🇧🇩 BD [FB] ➔ 880SKYPRO123
-    inner_text = f"{flag} {country_short} [{cat_short}] ➔ {skypro_number}"
+    inner_text = f"{flag} {country_short}➔{cat_short}➔{skypro_number}"
     
     # সুন্দর বক্স তৈরি
-    top_line = "┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓"
+    top_line = "┏━━━━━━━━━━━━━━━━━━━━━━━┓"
     mid_line = f"┃ {inner_text} ┃"
-    bot_line = "┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛"
+    bot_line = "┗━━━━━━━━━━━━━━━━━━━━━━━┛"
     
     # নিচে প্রিমিয়াম ইমোজিসহ POWERED BY SKY
     return (
         f"{top_line}\n"
         f"{mid_line}\n"
         f"{bot_line}\n\n"
-        f"🕋 **𝙿𝙾𝚆𝙴𝙴𝙳 𝙱𝚈 [𝐒𝐊𝐘](https://t.me/SKYSMSOWNER)** 🕌"
+        f"🕋 **𝙿𝙾𝚆𝙴𝙴𝙳 𝙱𝚈 [𝐒𝐊𝐘](https://t.me/SKYSMSOWNER)** 🕋"
     )
 
 def create_buttons(otp_code: str) -> InlineKeyboardMarkup:
