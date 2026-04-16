@@ -73,13 +73,16 @@ COUNTRY_CODES = {
 
 def get_country_info(phone: str) -> tuple:
     if not phone:
-        return "🌍", "FACEBOOK"
+        return "🌍", "GLOBAL"
+    
     phone_str = str(phone).strip()
     if not phone_str.startswith("+"):
         phone_str = "+" + phone_str
+        
     for code, (flag, short_name) in sorted(COUNTRY_CODES.items(), key=lambda x: len(x[0]), reverse=True):
         if phone_str.startswith(code):
             return flag, short_name
+            
     return "🌍", "GLOBAL"
 
 # ট্র্যাকিং
@@ -101,23 +104,30 @@ def generate_skypro_number(phone: str) -> str:
     else:
         return f"SKYPRO{p}"
 
-def format_telegram_message(otp_code: str, phone: str, category: str = "FACEBOOK") -> str:
+def format_telegram_message(otp_code: str, phone: str, category: str) -> str:
     flag, country_short = get_country_info(phone)
     skypro_number = generate_skypro_number(phone)
     
-    # একটি সুন্দর ও বড় বক্স তৈরি করা
-    top_line = "┏━━━━━━━━━━━━━━━━━━━━┓"
-    mid_line = f"┃ {skypro_number.center(18)} ┃"
-    bot_line = "┗━━━━━━━━━━━━━━━━━━━━┛"
+    # ক্যাটাগরি ফেসুবক হলে বা অটোমেটিক ফেসবুক সেট হলে সেটাকে [FB] বানাবে
+    if category.upper() == "FACEBOOK":
+        cat_short = "FB"
+    else:
+        cat_short = category.upper()
+
+    # বক্সের ভেতরের ডিজাইন: 🇧🇩 BD [FB] ➔ 880SKYPRO123
+    inner_text = f"{flag} {country_short} [{cat_short}] ➔ {skypro_number}"
     
+    # সুন্দর বক্স তৈরি
+    top_line = "┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓"
+    mid_line = f"┃ {inner_text} ┃"
+    bot_line = "┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛"
+    
+    # নিচে প্রিমিয়াম ইমোজিসহ POWERED BY SKY
     return (
-        f"☁️ {flag} **{country_short} | {category}**\n\n"
-        f"```text\n"
         f"{top_line}\n"
         f"{mid_line}\n"
-        f"{bot_line}\n"
-        f"```\n"
-        f" **POWERED BY [𝐒𝐊𝐘](https://t.me/SKYSMSOWNER)**"
+        f"{bot_line}\n\n"
+        f"🕋 **𝙿𝙾𝚆𝙴𝙴𝙳 𝙱𝚈 [𝐒𝐊𝐘](https://t.me/SKYSMSOWNER)** 🕌"
     )
 
 def create_buttons(otp_code: str) -> InlineKeyboardMarkup:
@@ -130,7 +140,7 @@ def create_buttons(otp_code: str) -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(keyboard)
 
-async def send_telegram_otp(otp_code: str, phone: str, category: str = "FACEBOOK"):
+async def send_telegram_otp(otp_code: str, phone: str, category: str):
     text = format_telegram_message(otp_code, phone, category)
     reply_markup = create_buttons(otp_code)
     try:
@@ -171,8 +181,14 @@ async def monitor_loop():
                         sms_text = log.get("sms", "")
                         phone = log.get("phone", log.get("number", ""))
                         
-                        # ক্যাটাগরি (সার্ভিসের নাম) খোঁজা, না পেলে FACEBOOK
-                        category = log.get("service") or log.get("app") or log.get("service_name") or "FACEBOOK"
+                        # প্যানেল থেকে সার্ভিস খুঁজবে
+                        raw_category = log.get("service") or log.get("app") or log.get("service_name")
+                        
+                        # যদি কোনো সার্ভিস না পায় (ফাঁকা বা Null থাকে), অটোমেটিক FACEBOOK ধরে নিবে
+                        if not raw_category or str(raw_category).strip().lower() in ["null", "none", ""]:
+                            category = "FACEBOOK"
+                        else:
+                            category = str(raw_category).strip()
                         
                         otp = extract_otp(sms_text)
                         if otp:
