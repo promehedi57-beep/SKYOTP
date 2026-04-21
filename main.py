@@ -109,14 +109,21 @@ def format_telegram_message(otp_code: str, phone: str, category: str) -> str:
     flag, country_short = get_country_info(phone)
     skypro_number = generate_skypro_number(phone)
     
-    # ক্যাটাগরি ফেসুবক হলে বা অটোমেটিক ফেসবুক সেট হলে সেটাকে [FB] বানাবে
-    if category.upper() == "FACEBOOK":
-        cat_short = "FB"
-    else:
-        cat_short = category.upper()
+    # সব প্ল্যাটফর্ম শর্ট ফর্মে রূপান্তর
+    cat_upper = category.upper()
+    short_forms = {
+        "FACEBOOK": "FB", "WHATSAPP": "WS", "TELEGRAM": "TG", "INSTAGRAM": "IG",
+        "GOOGLE": "GO", "TWITTER": "TW", "TIKTOK": "TT", "SNAPCHAT": "SC",
+        "DISCORD": "DC", "LINKEDIN": "LI", "MICROSOFT": "MS", "AMAZON": "AM",
+        "APPLE": "AP", "VIBER": "VB", "LINE": "LN", "WECHAT": "WC", "IMO": "IM",
+        "TINDER": "TN", "YAHOO": "YH", "NETFLIX": "NF"
+    }
+    
+    # লিস্টে না থাকলে প্রথম ২ অক্ষর শর্ট ফর্ম হিসেবে নিবে
+    cat_short = short_forms.get(cat_upper, cat_upper[:2])
 
-    # বক্সের ভেতরের ডিজাইন: 🇧🇩 BD [FB] ➔ 880SKYPRO123
-    inner_text = f"{flag} {country_short}➔{cat_short}➔{skypro_number}"
+    # বক্সের ভেতরের ডিজাইন (তৃতীয় বন্ধনীসহ): 🇧🇩 BD ➔ FB ➔ [880SKYPRO123]
+    inner_text = f"{flag} {country_short}➔{cat_short}➔[{skypro_number}]"
     
     # সুন্দর বক্স তৈরি
     top_line = "┏━━━━━━━━━━━━━━━━━━━━━━━┓"
