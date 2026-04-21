@@ -14,11 +14,12 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOKEN = "8647348457:AAEi5Kre2Df4Xeig80aZzsd_7zR9MFO739Y"
 TELEGRAM_CHAT_ID = "-1003860008126"
 
-API_BASE_URL = "http://2.58.82.137:5000/api/v1"
-API_KEY = "nxa_99f2f67b13e0e02bca175b1cbc40d57128958702"
+# --- New Panel (MNIT Network) ---
+API_BASE_URL = "https://x.mnitnetwork.com/mapi/v1"
+API_KEY = "M_A4UFFVM8R"
 
 HEADERS = {
-    "X-API-Key": API_KEY,
+    "mapikey": API_KEY,
     "Accept": "application/json"
 }
 
@@ -156,15 +157,18 @@ async def send_telegram_otp(otp_code: str, phone: str, category: str):
         logger.error(f"❌ টেলিগ্রামে পাঠাতে ব্যর্থ: {e}")
 
 async def fetch_console_logs(session: aiohttp.ClientSession) -> list:
-    url = f"{API_BASE_URL}/console/logs?limit=10"
+    url = f"{API_BASE_URL}/public/numsuccess/info"
     try:
-        async with session.get(url, headers=HEADERS, timeout=10) as resp:
+        # SSL Verification False করা হয়েছে নিরাপত্তার স্বার্থে যাতে এরর না আসে
+        async with session.get(url, headers=HEADERS, timeout=10, ssl=False) as resp:
             if resp.status == 200:
                 data = await resp.json()
-                if data.get("success") and "data" in data:
-                    return data["data"]
+                if isinstance(data, dict) and data.get("meta", {}).get("code") == 200:
+                    data_obj = data.get("data")
+                    if data_obj and isinstance(data_obj, dict):
+                        return data_obj.get("otps", [])
             elif resp.status == 401:
-                logger.error("❌ API Key ভুল!")
+                logger.error("❌ API Key ভুল বা Unauthorized!")
     except Exception as e:
         logger.error(f"ফেচ করতে ব্যর্থ: {e}")
     return []
@@ -176,16 +180,16 @@ async def monitor_loop():
             logs = await fetch_console_logs(session)
             if logs:
                 for log in reversed(logs):
-                    msg_id = log.get("id")
+                    msg_id = log.get("nid") # নতুন API এর ফিল্ড nid
                     if msg_id and msg_id not in processed_ids:
-                        sms_text = log.get("sms", "")
-                        phone = log.get("phone", log.get("number", ""))
+                        sms_text = log.get("otp", "") # নতুন API এর ফিল্ড otp
+                        phone = log.get("number", "") # নতুন API এর ফিল্ড number
                         
                         # প্যানেল থেকে সার্ভিস খুঁজবে
-                        raw_category = log.get("service") or log.get("app") or log.get("service_name")
+                        raw_category = log.get("operator") # নতুন API এর ফিল্ড operator
                         
-                        # যদি কোনো সার্ভিস না পায় (ফাঁকা বা Null থাকে), অটোমেটিক FACEBOOK ধরে নিবে
-                        if not raw_category or str(raw_category).strip().lower() in ["null", "none", ""]:
+                        # যদি কোনো সার্ভিস না পায় (ফাঁকা, Null বা Other থাকে), অটোমেটিক FACEBOOK ধরে নিবে
+                        if not raw_category or str(raw_category).strip().lower() in ["null", "none", "", "other"]:
                             category = "FACEBOOK"
                         else:
                             category = str(raw_category).strip()
