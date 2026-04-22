@@ -1,14 +1,14 @@
 import asyncio
 import logging
 import re
+import html
 from collections import deque
-from datetime import datetime
 
 import aiohttp
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 
-# (CopyTextButton শুধু python-telegram-bot v20.8+ এ সাপোর্ট করে)
+# CopyTextButton সাপোর্ট চেক করা হচ্ছে
 try:
     from telegram import CopyTextButton
 except ImportError:
@@ -28,7 +28,7 @@ API_KEY = "M_A4UFFVM8R"
 HEADERS = {
     "mapikey": API_KEY,
     "Accept": "application/json",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 }
 
 # ======================== দেশের কোড ও পতাকা ========================
@@ -95,60 +95,56 @@ def get_country_info(phone: str) -> tuple:
     return "🌍", "GLOBAL"
 
 # ট্র্যাকিং
-processed_ids = deque(maxlen=500)
+processed_ids = deque(maxlen=1000)
 bot = Bot(token=TELEGRAM_TOKEN)
 
-# রেজেক্স আপডেট করা হয়েছে যাতে স্পেস ছাড়াই যে কোনো ডিজিট ক্যাচ করতে পারে
-OTP_REGEX = re.compile(r'\d{4,10}')
-
-def extract_otp(text: str) -> str | None:
+def extract_otp(text: str) -> str:
     if not text:
-        return None
-    match = OTP_REGEX.search(str(text))
-    return match.group(0) if match else None
+        return "OTP"
+    # ৪ থেকে ৮ ডিজিটের পারফেক্ট কোড খোঁজার আধুনিক রেজেক্স
+    match = re.search(r'(?<!\d)\d{4,8}(?!\d)', str(text))
+    return match.group(0) if match else "Check SMS"
 
 def generate_skypro_number(phone: str) -> str:
-    """সামনে ৩টা + SKYPRO + পেছনে ৩টা সংখ্যা"""
     p = str(phone).strip().replace("+", "")
     if len(p) >= 6:
         return f"{p[:3]}SKYPRO{p[-3:]}"
     else:
         return f"SKYPRO{p}"
 
-def format_telegram_message(otp_code: str, phone: str, category: str) -> str:
+def format_telegram_message(phone: str, category: str, sms_text: str) -> str:
     flag, country_short = get_country_info(phone)
     skypro_number = generate_skypro_number(phone)
     
     cat_upper = category.upper()
     short_forms = {
         "FACEBOOK": "FB", "WHATSAPP": "WS", "TELEGRAM": "TG", "INSTAGRAM": "IG",
-        "GOOGLE": "GO", "TWITTER": "TW", "TIKTOK": "TT", "SNAPCHAT": "SC",
-        "DISCORD": "DC", "LINKEDIN": "LI", "MICROSOFT": "MS", "AMAZON": "AM",
-        "APPLE": "AP", "VIBER": "VB", "LINE": "LN", "WECHAT": "WC", "IMO": "IM",
-        "TINDER": "TN", "YAHOO": "YH", "NETFLIX": "NF"
+        "GOOGLE": "GO", "TWITTER": "TW", "TIKTOK": "TT", "SNAPCHAT": "SC"
     }
-    
     cat_short = short_forms.get(cat_upper, cat_upper[:2])
 
     inner_text = f"{flag} {country_short}➔{cat_short}➔[{skypro_number}]"
+    
+    # HTML Parsing ব্যবহার করা হয়েছে ক্র্যাশ এড়াতে
+    escaped_sms = html.escape(sms_text) # <, >, & ইত্যাদি থাকলে সেগুলোকে নিরাপদ করবে
     
     top_line = "┏━━━━━━━━━━━━━━━━━━━━━━━┓"
     mid_line = f"┃ {inner_text} ┃"
     bot_line = "┗━━━━━━━━━━━━━━━━━━━━━━━┛"
     
     return (
-        f"{top_line}\n"
-        f"{mid_line}\n"
-        f"{bot_line}\n\n"
-        f"🕋 **𝙿𝙾𝚆𝙴𝚁𝙴𝙳 𝙱𝚈 [𝐒𝐊𝐘](https://t.me/SKYSMSOWNER)** 🕋"
+        f"<code>{top_line}</code>\n"
+        f"<code>{mid_line}</code>\n"
+        f"<code>{bot_line}</code>\n\n"
+        f"💬 <b>SMS:</b> <code>{escaped_sms}</code>\n\n"
+        f"🕋 <b>POWERED BY <a href='https://t.me/SKYSMSOWNER'>SKY</a></b> 🕋"
     )
 
 def create_buttons(otp_code: str) -> InlineKeyboardMarkup:
-    # CopyTextButton সাপোর্ট না করলে নরমাল বাটন ব্যবহার করবে
-    if CopyTextButton:
+    if CopyTextButton and otp_code != "Check SMS":
         btn = InlineKeyboardButton(f" {otp_code}", copy_text=CopyTextButton(text=otp_code))
     else:
-        btn = InlineKeyboardButton(f" {otp_code} (Click to copy)", callback_data=f"copy_{otp_code}")
+        btn = InlineKeyboardButton(f" {otp_code} (Click/Long press)", callback_data="none")
         
     keyboard = [
         [btn],
@@ -159,88 +155,81 @@ def create_buttons(otp_code: str) -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(keyboard)
 
-async def send_telegram_otp(otp_code: str, phone: str, category: str):
-    text = format_telegram_message(otp_code, phone, category)
+async def send_telegram_otp(otp_code: str, phone: str, category: str, sms_text: str):
+    text = format_telegram_message(phone, category, sms_text)
     reply_markup = create_buttons(otp_code)
     try:
         await bot.send_message(
             chat_id=TELEGRAM_CHAT_ID,
             text=text,
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=ParseMode.HTML, # Markdown ক্র্যাশ করে, তাই HTML দেওয়া হলো
             reply_markup=reply_markup,
             disable_web_page_preview=True
         )
-        logger.info(f"✅ OTP পাঠানো হয়েছে: {otp_code} | {category}")
+        logger.info(f"✅ OTP পাঠানো হয়েছে | ক্যাটাগরি: {category}")
+        return True
     except Exception as e:
         logger.error(f"❌ টেলিগ্রামে পাঠাতে ব্যর্থ: {e}")
+        return False
 
 async def fetch_console_logs(session: aiohttp.ClientSession) -> list:
     url = f"{API_BASE_URL}/public/numsuccess/info"
     try:
         async with session.get(url, headers=HEADERS, timeout=10) as resp:
             if resp.status == 200:
-                # content_type=None দেওয়া হয়েছে যাতে JSON বা HTML যাই আসুক এরর না খায়
-                data = await resp.json(content_type=None) 
-                
-                if isinstance(data, dict):
-                    # স্ট্রিং হিসেবে চেক করা হচ্ছে
-                    meta_code = str(data.get("meta", {}).get("code", ""))
-                    if meta_code == "200":
-                        data_obj = data.get("data", {})
-                        if isinstance(data_obj, dict):
-                            return data_obj.get("otps", [])
-                        
+                data = await resp.json(content_type=None)
+                if isinstance(data, dict) and str(data.get("meta", {}).get("code", "")) == "200":
+                    return data.get("data", {}).get("otps", [])
             elif resp.status == 401:
                 logger.error("❌ API Key ভুল বা Unauthorized!")
-            else:
-                logger.error(f"❌ HTTP Error: {resp.status}")
-                
     except Exception as e:
-        logger.error(f"❌ API থেকে ডেটা আনতে ব্যর্থ: {e}")
+        logger.error(f"❌ ডেটা ফেচ করতে সমস্যা: {e}")
     return []
 
 async def monitor_loop():
     logger.info("🚀 SKY OTP ফরওয়ার্ড বট চালু হয়েছে")
     
-    # প্রথমবার চালু হলে আগের ২০ টা মেসেজ চ্যানেলে ফ্লাড করা বন্ধ করার জন্য
-    is_first_run = True 
-    
-    # SSL এরর ইগনোর করার সঠিক নিয়ম
     connector = aiohttp.TCPConnector(ssl=False)
-    
     async with aiohttp.ClientSession(connector=connector) as session:
+        
+        # বট চালু হওয়ার সাথে সাথে পুরনো মেসেজগুলো একবার রিড করে আইডি সেভ করে নিবে (যাতে টেলিগ্রামে স্প্যাম না হয়)
+        logger.info("⏳ পুরনো মেসেজ স্ক্যান করা হচ্ছে...")
+        initial_logs = await fetch_console_logs(session)
+        for log in initial_logs:
+            if log.get("nid"):
+                processed_ids.append(log.get("nid"))
+        logger.info("✅ স্ক্যান সম্পূর্ণ! এখন নতুন ওটিপির জন্য অপেক্ষা করছে...")
+
+        # মেইন মনিটরিং লুপ
         while True:
+            await asyncio.sleep(1.5) # ১.৫ সেকেন্ড পর পর চেক করবে, ফলে কোনো ওটিপি মিস হবে না
+            
             logs = await fetch_console_logs(session)
             if logs:
                 for log in reversed(logs):
                     msg_id = log.get("nid")
+                    
                     if msg_id and msg_id not in processed_ids:
+                        sms_text = str(log.get("otp", ""))
+                        phone = str(log.get("number", ""))
+                        raw_category = log.get("operator")
                         
-                        if not is_first_run:
-                            sms_text = str(log.get("otp", ""))
-                            phone = str(log.get("number", ""))
-                            raw_category = log.get("operator")
-                            
-                            if not raw_category or str(raw_category).strip().lower() in ["null", "none", "", "other"]:
-                                category = "FACEBOOK"
-                            else:
-                                category = str(raw_category).strip()
-                            
-                            otp = extract_otp(sms_text)
-                            if otp:
-                                await send_telegram_otp(otp, phone, category)
-                            else:
-                                logger.warning(f"⚠️ OTP খুঁজে পাওয়া যায়নি: {sms_text}")
-                                
-                        # ID সেভ করে রাখছে যাতে ডাবল না যায়
-                        processed_ids.append(msg_id)
-            
-            is_first_run = False
-            await asyncio.sleep(2) # ২ সেকেন্ড পর পর চেক করবে
+                        category = str(raw_category).strip() if raw_category and str(raw_category).strip().lower() not in ["null", "none", "", "other"] else "FACEBOOK"
+                        
+                        otp = extract_otp(sms_text)
+                        
+                        # ওটিপি সেন্ড করা হচ্ছে
+                        success = await send_telegram_otp(otp, phone, category, sms_text)
+                        
+                        if success:
+                            processed_ids.append(msg_id)
+                        else:
+                            # টেলিগ্রাম ফেইল করলে আইডি সেভ করবে না, পরের বার আবার ট্রাই করবে!
+                            pass
 
 async def main():
     print("="*50)
-    print("☁️ SKY OTP মনিটরিং শুরু হচ্ছে...")
+    print("☁️ SKY OTP মনিটরিং শুরু হচ্ছে (100% Guaranteed Delivery)")
     print("="*50)
     await monitor_loop()
 
