@@ -5,7 +5,14 @@ from collections import deque
 from datetime import datetime
 
 import aiohttp
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ParseMode
+
+# (CopyTextButton শুধু python-telegram-bot v20.8+ এ সাপোর্ট করে)
+try:
+    from telegram import CopyTextButton
+except ImportError:
+    CopyTextButton = None
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -20,7 +27,8 @@ API_KEY = "M_A4UFFVM8R"
 
 HEADERS = {
     "mapikey": API_KEY,
-    "Accept": "application/json"
+    "Accept": "application/json",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 }
 
 # ======================== দেশের কোড ও পতাকা ========================
@@ -90,11 +98,13 @@ def get_country_info(phone: str) -> tuple:
 processed_ids = deque(maxlen=500)
 bot = Bot(token=TELEGRAM_TOKEN)
 
-# OTP রেজেক্স
-OTP_REGEX = re.compile(r'\b\d{4,10}\b')
+# রেজেক্স আপডেট করা হয়েছে যাতে স্পেস ছাড়াই যে কোনো ডিজিট ক্যাচ করতে পারে
+OTP_REGEX = re.compile(r'\d{4,10}')
 
 def extract_otp(text: str) -> str | None:
-    match = OTP_REGEX.search(text)
+    if not text:
+        return None
+    match = OTP_REGEX.search(str(text))
     return match.group(0) if match else None
 
 def generate_skypro_number(phone: str) -> str:
@@ -109,7 +119,6 @@ def format_telegram_message(otp_code: str, phone: str, category: str) -> str:
     flag, country_short = get_country_info(phone)
     skypro_number = generate_skypro_number(phone)
     
-    # সব প্ল্যাটফর্ম শর্ট ফর্মে রূপান্তর
     cat_upper = category.upper()
     short_forms = {
         "FACEBOOK": "FB", "WHATSAPP": "WS", "TELEGRAM": "TG", "INSTAGRAM": "IG",
@@ -119,28 +128,30 @@ def format_telegram_message(otp_code: str, phone: str, category: str) -> str:
         "TINDER": "TN", "YAHOO": "YH", "NETFLIX": "NF"
     }
     
-    # লিস্টে না থাকলে প্রথম ২ অক্ষর শর্ট ফর্ম হিসেবে নিবে
     cat_short = short_forms.get(cat_upper, cat_upper[:2])
 
-    # বক্সের ভেতরের ডিজাইন (তৃতীয় বন্ধনীসহ): 🇧🇩 BD ➔ FB ➔ [880SKYPRO123]
     inner_text = f"{flag} {country_short}➔{cat_short}➔[{skypro_number}]"
     
-    # সুন্দর বক্স তৈরি
     top_line = "┏━━━━━━━━━━━━━━━━━━━━━━━┓"
     mid_line = f"┃ {inner_text} ┃"
     bot_line = "┗━━━━━━━━━━━━━━━━━━━━━━━┛"
     
-    # নিচে প্রিমিয়াম ইমোজিসহ POWERED BY SKY
     return (
         f"{top_line}\n"
         f"{mid_line}\n"
         f"{bot_line}\n\n"
-        f"🕋 **𝙿𝙾𝚆𝙴𝙴𝙳 𝙱𝚈 [𝐒𝐊𝐘](https://t.me/SKYSMSOWNER)** 🕋"
+        f"🕋 **𝙿𝙾𝚆𝙴𝚁𝙴𝙳 𝙱𝚈 [𝐒𝐊𝐘](https://t.me/SKYSMSOWNER)** 🕋"
     )
 
 def create_buttons(otp_code: str) -> InlineKeyboardMarkup:
+    # CopyTextButton সাপোর্ট না করলে নরমাল বাটন ব্যবহার করবে
+    if CopyTextButton:
+        btn = InlineKeyboardButton(f" {otp_code}", copy_text=CopyTextButton(text=otp_code))
+    else:
+        btn = InlineKeyboardButton(f" {otp_code} (Click to copy)", callback_data=f"copy_{otp_code}")
+        
     keyboard = [
-        [InlineKeyboardButton(f" {otp_code}", copy_text=CopyTextButton(text=otp_code))],
+        [btn],
         [
             InlineKeyboardButton("‼️ 𝑷𝑨𝑵𝑬𝑳", url="https://t.me/SKYSMSPRO_BOT"),
             InlineKeyboardButton("📞 𝑪𝑯𝑨𝑵𝑵𝑬𝑳", url="https://t.me/SKYOFFICIALCHANNEL1")
@@ -155,7 +166,7 @@ async def send_telegram_otp(otp_code: str, phone: str, category: str):
         await bot.send_message(
             chat_id=TELEGRAM_CHAT_ID,
             text=text,
-            parse_mode="Markdown",
+            parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup,
             disable_web_page_preview=True
         )
@@ -166,46 +177,66 @@ async def send_telegram_otp(otp_code: str, phone: str, category: str):
 async def fetch_console_logs(session: aiohttp.ClientSession) -> list:
     url = f"{API_BASE_URL}/public/numsuccess/info"
     try:
-        # SSL Verification False করা হয়েছে নিরাপত্তার স্বার্থে যাতে এরর না আসে
-        async with session.get(url, headers=HEADERS, timeout=10, ssl=False) as resp:
+        async with session.get(url, headers=HEADERS, timeout=10) as resp:
             if resp.status == 200:
-                data = await resp.json()
-                if isinstance(data, dict) and data.get("meta", {}).get("code") == 200:
-                    data_obj = data.get("data")
-                    if data_obj and isinstance(data_obj, dict):
-                        return data_obj.get("otps", [])
+                # content_type=None দেওয়া হয়েছে যাতে JSON বা HTML যাই আসুক এরর না খায়
+                data = await resp.json(content_type=None) 
+                
+                if isinstance(data, dict):
+                    # স্ট্রিং হিসেবে চেক করা হচ্ছে
+                    meta_code = str(data.get("meta", {}).get("code", ""))
+                    if meta_code == "200":
+                        data_obj = data.get("data", {})
+                        if isinstance(data_obj, dict):
+                            return data_obj.get("otps", [])
+                        
             elif resp.status == 401:
                 logger.error("❌ API Key ভুল বা Unauthorized!")
+            else:
+                logger.error(f"❌ HTTP Error: {resp.status}")
+                
     except Exception as e:
-        logger.error(f"ফেচ করতে ব্যর্থ: {e}")
+        logger.error(f"❌ API থেকে ডেটা আনতে ব্যর্থ: {e}")
     return []
 
 async def monitor_loop():
     logger.info("🚀 SKY OTP ফরওয়ার্ড বট চালু হয়েছে")
-    async with aiohttp.ClientSession() as session:
+    
+    # প্রথমবার চালু হলে আগের ২০ টা মেসেজ চ্যানেলে ফ্লাড করা বন্ধ করার জন্য
+    is_first_run = True 
+    
+    # SSL এরর ইগনোর করার সঠিক নিয়ম
+    connector = aiohttp.TCPConnector(ssl=False)
+    
+    async with aiohttp.ClientSession(connector=connector) as session:
         while True:
             logs = await fetch_console_logs(session)
             if logs:
                 for log in reversed(logs):
-                    msg_id = log.get("nid") # নতুন API এর ফিল্ড nid
+                    msg_id = log.get("nid")
                     if msg_id and msg_id not in processed_ids:
-                        sms_text = log.get("otp", "") # নতুন API এর ফিল্ড otp
-                        phone = log.get("number", "") # নতুন API এর ফিল্ড number
                         
-                        # প্যানেল থেকে সার্ভিস খুঁজবে
-                        raw_category = log.get("operator") # নতুন API এর ফিল্ড operator
-                        
-                        # যদি কোনো সার্ভিস না পায় (ফাঁকা, Null বা Other থাকে), অটোমেটিক FACEBOOK ধরে নিবে
-                        if not raw_category or str(raw_category).strip().lower() in ["null", "none", "", "other"]:
-                            category = "FACEBOOK"
-                        else:
-                            category = str(raw_category).strip()
-                        
-                        otp = extract_otp(sms_text)
-                        if otp:
-                            await send_telegram_otp(otp, phone, category)
-                            processed_ids.append(msg_id)
-            await asyncio.sleep(1)
+                        if not is_first_run:
+                            sms_text = str(log.get("otp", ""))
+                            phone = str(log.get("number", ""))
+                            raw_category = log.get("operator")
+                            
+                            if not raw_category or str(raw_category).strip().lower() in ["null", "none", "", "other"]:
+                                category = "FACEBOOK"
+                            else:
+                                category = str(raw_category).strip()
+                            
+                            otp = extract_otp(sms_text)
+                            if otp:
+                                await send_telegram_otp(otp, phone, category)
+                            else:
+                                logger.warning(f"⚠️ OTP খুঁজে পাওয়া যায়নি: {sms_text}")
+                                
+                        # ID সেভ করে রাখছে যাতে ডাবল না যায়
+                        processed_ids.append(msg_id)
+            
+            is_first_run = False
+            await asyncio.sleep(2) # ২ সেকেন্ড পর পর চেক করবে
 
 async def main():
     print("="*50)
