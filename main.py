@@ -106,6 +106,33 @@ def generate_skypro_number(phone: str) -> str:
     else:
         return f"SKYPRO{p}"
 
+# ======================== নতুন যোগ করা অংশ (অটো ডিটেক্ট) ========================
+def auto_detect_category(sms_text: str) -> str:
+    """মেসেজের লেখা পড়ে বুঝতে পারবে কোন সার্ভিসের ওটিপি"""
+    text = str(sms_text).lower()
+    
+    if "facebook" in text or " fb " in text: return "FACEBOOK"
+    if "whatsapp" in text or "wa.me" in text: return "WHATSAPP"
+    if "telegram" in text: return "TELEGRAM"
+    if "instagram" in text or " ig " in text: return "INSTAGRAM"
+    if "google" in text or "gmail" in text or "g-" in text: return "GOOGLE"
+    if "twitter" in text or " x " in text: return "TWITTER"
+    if "tiktok" in text: return "TIKTOK"
+    if "snapchat" in text: return "SNAPCHAT"
+    if "discord" in text: return "DISCORD"
+    if "microsoft" in text: return "MICROSOFT"
+    if "amazon" in text: return "AMAZON"
+    if "imo" in text: return "IMO"
+    if "viber" in text: return "VIBER"
+    if "netflix" in text: return "NETFLIX"
+    if "tinder" in text: return "TINDER"
+    if "yahoo" in text: return "YAHOO"
+    if "linkedin" in text: return "LINKEDIN"
+    if "apple" in text: return "APPLE"
+    
+    return "FACEBOOK" # যদি মেসেজ থেকেও কিছু বুঝতে না পারে, তবে ফেসবুক ডিফল্ট হিসেবে ধরবে।
+# =================================================================================
+
 def format_telegram_message(otp_code: str, phone: str, category: str) -> str:
     flag, country_short = get_country_info(phone)
     skypro_number = generate_skypro_number(phone)
@@ -198,9 +225,9 @@ async def monitor_loop():
                         # প্যানেল থেকে সার্ভিস খুঁজবে
                         raw_category = log.get("operator") # নতুন API এর ফিল্ড operator
                         
-                        # যদি কোনো সার্ভিস না পায় (ফাঁকা, Null বা Other থাকে), অটোমেটিক FACEBOOK ধরে নিবে
-                        if not raw_category or str(raw_category).strip().lower() in ["null", "none", "", "other"]:
-                            category = "FACEBOOK"
+                        # যদি প্যানেল থেকে সার্ভিস না পায়, অথবা Unknown আসে, তাহলে মেসেজ পড়ে বের করবে
+                        if not raw_category or str(raw_category).strip().lower() in ["null", "none", "", "other", "unknown"]:
+                            category = auto_detect_category(sms_text)
                         else:
                             category = str(raw_category).strip()
                         
