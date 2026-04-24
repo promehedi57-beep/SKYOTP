@@ -95,7 +95,9 @@ bot = Bot(token=TELEGRAM_TOKEN)
 OTP_REGEX = re.compile(r'\b\d{4,10}\b')
 
 def extract_otp(text: str) -> str | None:
-    match = OTP_REGEX.search(str(text))
+    # WhatsApp এর 123-456 টাইপ কোড ঠিকমতো ধরার জন্য হাইফেন রিমুভ করা হলো
+    clean_text = str(text).replace("-", "")
+    match = OTP_REGEX.search(clean_text)
     return match.group(0) if match else None
 
 def generate_skypro_number(phone: str) -> str:
@@ -106,52 +108,24 @@ def generate_skypro_number(phone: str) -> str:
     else:
         return f"SKYPRO{p}"
 
-# ======================== নতুন যোগ করা অংশ (অটো ডিটেক্ট) ========================
-def auto_detect_category(sms_text: str) -> str:
-    """মেসেজের লেখা পড়ে বুঝতে পারবে কোন সার্ভিসের ওটিপি"""
-    text = str(sms_text).lower()
-    
-    if "facebook" in text or " fb " in text: return "FACEBOOK"
-    if "whatsapp" in text or "wa.me" in text: return "WHATSAPP"
-    if "telegram" in text: return "TELEGRAM"
-    if "instagram" in text or " ig " in text: return "INSTAGRAM"
-    if "google" in text or "gmail" in text or "g-" in text: return "GOOGLE"
-    if "twitter" in text or " x " in text: return "TWITTER"
-    if "tiktok" in text: return "TIKTOK"
-    if "snapchat" in text: return "SNAPCHAT"
-    if "discord" in text: return "DISCORD"
-    if "microsoft" in text: return "MICROSOFT"
-    if "amazon" in text: return "AMAZON"
-    if "imo" in text: return "IMO"
-    if "viber" in text: return "VIBER"
-    if "netflix" in text: return "NETFLIX"
-    if "tinder" in text: return "TINDER"
-    if "yahoo" in text: return "YAHOO"
-    if "linkedin" in text: return "LINKEDIN"
-    if "apple" in text: return "APPLE"
-    
-    return "FACEBOOK" # যদি মেসেজ থেকেও কিছু বুঝতে না পারে, তবে ফেসবুক ডিফল্ট হিসেবে ধরবে।
-# =================================================================================
-
 def format_telegram_message(otp_code: str, phone: str, category: str) -> str:
     flag, country_short = get_country_info(phone)
     skypro_number = generate_skypro_number(phone)
     
-    # সব প্ল্যাটফর্ম শর্ট ফর্মে রূপান্তর
+    # সব প্ল্যাটফর্ম শর্ট ফর্মে রূপান্তর (ইউজারের শর্ত অনুযায়ী)
     cat_upper = category.upper()
-    short_forms = {
-        "FACEBOOK": "FB", "WHATSAPP": "WS", "TELEGRAM": "TG", "INSTAGRAM": "IG",
-        "GOOGLE": "GO", "TWITTER": "TW", "TIKTOK": "TT", "SNAPCHAT": "SC",
-        "DISCORD": "DC", "LINKEDIN": "LI", "MICROSOFT": "MS", "AMAZON": "AM",
-        "APPLE": "AP", "VIBER": "VB", "LINE": "LN", "WECHAT": "WC", "IMO": "IM",
-        "TINDER": "TN", "YAHOO": "YH", "NETFLIX": "NF"
-    }
     
-    # লিস্টে না থাকলে প্রথম ২ অক্ষর শর্ট ফর্ম হিসেবে নিবে
-    cat_short = short_forms.get(cat_upper, cat_upper[:2])
+    if "WHATSAPP" in cat_upper:
+        cat_short = "WA"
+    elif "INSTAGRAM" in cat_upper:
+        cat_short = "IG"
+    elif "TELEGRAM" in cat_upper:
+        cat_short = "TG"
+    else:
+        cat_short = "FB"  # বাকি সবকিছু এফবি (FB) থাকবে
 
-    # বক্সের ভেতরের ডিজাইন (তৃতীয় বন্ধনীসহ): 🇧🇩 BD ➔ FB ➔ [880SKYPRO123]
-    inner_text = f"{flag} {country_short}➔{cat_short}➔[{skypro_number}]"
+    # বক্সের ভেতরের ডিজাইন (তৃতীয় বন্ধনীসহ): 🇧🇩 BD ➔ FB ➔ [ 880SKYPRO123 ]
+    inner_text = f"{flag} {country_short}➔{cat_short}➔[ {skypro_number} ]"
     
     # সুন্দর বক্স তৈরি
     top_line = "┏━━━━━━━━━━━━━━━━━━━━━━━┓"
@@ -217,17 +191,21 @@ async def monitor_loop():
             logs = await fetch_console_logs(session)
             if logs:
                 for log in reversed(logs):
-                    msg_id = str(log.get("nid") or log.get("id") or "") # নতুন API এর ফিল্ড nid বা id
+                    base_id = str(log.get("nid") or log.get("id") or "") 
+                    sms_text = str(log.get("otp", ""))
+                    
+                    # আইডি এবং এসএমএস টেক্সট মিলিয়ে ট্র্যাকিং - প্যানেলে একই কোড ২ বার আসলে গ্রুপেও ২ বার যাবে
+                    msg_id = f"{base_id}_{sms_text}" if base_id else sms_text
+                    
                     if msg_id and msg_id not in processed_ids:
-                        sms_text = str(log.get("otp", "")) # নতুন API এর ফিল্ড otp
                         phone = log.get("number", "") # নতুন API এর ফিল্ড number
                         
                         # প্যানেল থেকে সার্ভিস খুঁজবে
                         raw_category = log.get("operator") # নতুন API এর ফিল্ড operator
                         
-                        # যদি প্যানেল থেকে সার্ভিস না পায়, অথবা Unknown আসে, তাহলে মেসেজ পড়ে বের করবে
-                        if not raw_category or str(raw_category).strip().lower() in ["null", "none", "", "other", "unknown"]:
-                            category = auto_detect_category(sms_text)
+                        # যদি কোনো সার্ভিস না পায় (ফাঁকা, Null বা Other থাকে), অটোমেটিক FACEBOOK ধরে নিবে
+                        if not raw_category or str(raw_category).strip().lower() in ["null", "none", "", "other"]:
+                            category = "FACEBOOK"
                         else:
                             category = str(raw_category).strip()
                         
