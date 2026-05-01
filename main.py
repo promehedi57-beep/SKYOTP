@@ -91,14 +91,33 @@ def get_country_info(phone: str) -> tuple:
 processed_ids = deque(maxlen=500)
 bot = Bot(token=TELEGRAM_TOKEN)
 
-# OTP রেজেক্স
-OTP_REGEX = re.compile(r'\b\d{4,10}\b')
-
 def extract_otp(text: str) -> str | None:
-    # WhatsApp এর 123-456 টাইপ কোড ঠিকমতো ধরার জন্য হাইফেন রিমুভ করা হলো
-    clean_text = str(text).replace("-", "")
-    match = OTP_REGEX.search(clean_text)
-    return match.group(0) if match else None
+    if not text:
+        return None
+        
+    text = str(text).upper()
+    
+    # ১. যদি "FB-12345" বা "IG-123456" টাইপ থাকে, তবে সেটা সবার আগে ধরবে
+    fb_ig_match = re.search(r'(?:FB|IG)[\s\-]*(\d{5,8})', text)
+    if fb_ig_match:
+        return fb_ig_match.group(1)
+
+    # ২. ফুল মেসেজ থেকে ৪-৮ সংখ্যার কোড বের করার চেষ্টা (বড় নাম্বার ইগনোর করবে)
+    # হাইফেন, কোলন বা সমান চিহ্নগুলোকে স্পেস বানিয়ে দিচ্ছি যাতে কোডটা আলাদা হয়ে যায়
+    clean_text = text.replace("-", " ").replace("=", " ").replace(":", " ")
+    matches = re.findall(r'\b\d{4,8}\b', clean_text)
+    
+    for match in matches:
+        if not re.match(r'^0+$', match): # শূন্য (00, 0000) বাদ দেবে
+            return match
+
+    # ৩. যদি স্পেস ছাড়া একদম একসাথে লেখা থাকে, তবে ব্যাকআপ হিসেবে খুঁজবে
+    matches_fallback = re.findall(r'\d{4,8}', text.replace("-", "").replace(" ", ""))
+    for match in matches_fallback:
+        if not re.match(r'^0+$', match):
+            return match
+            
+    return None
 
 def generate_skypro_number(phone: str) -> str:
     """সামনে ৩টা + SKYPRO + পেছনে ৩টা সংখ্যা"""
@@ -112,7 +131,6 @@ def format_telegram_message(otp_code: str, phone: str, category: str) -> str:
     flag, country_short = get_country_info(phone)
     skypro_number = generate_skypro_number(phone)
     
-    # সব প্ল্যাটফর্ম শর্ট ফর্মে রূপান্তর (ইউজারের শর্ত অনুযায়ী)
     cat_upper = category.upper()
     
     if "WHATSAPP" in cat_upper:
@@ -122,22 +140,19 @@ def format_telegram_message(otp_code: str, phone: str, category: str) -> str:
     elif "TELEGRAM" in cat_upper:
         cat_short = "TG"
     else:
-        cat_short = "FB"  # বাকি সবকিছু এফবি (FB) থাকবে
+        cat_short = "FB"  
 
-    # বক্সের ভেতরের ডিজাইন (তৃতীয় বন্ধনীসহ): 🇧🇩 BD ➔ FB ➔ [ 880SKYPRO123 ]
     inner_text = f"{flag} {country_short}➔{cat_short}➔[ {skypro_number} ]"
     
-    # সুন্দর বক্স তৈরি
     top_line = "┏━━━━━━━━━━━━━━━━━━━━━━━┓"
     mid_line = f"┃ {inner_text} ┃"
     bot_line = "┗━━━━━━━━━━━━━━━━━━━━━━━┛"
     
-    # নিচে প্রিমিয়াম ইমোজিসহ POWERED BY SKY
     return (
         f"{top_line}\n"
         f"{mid_line}\n"
         f"{bot_line}\n\n"
-        f"🕋 **𝙿𝙾𝚆𝙴𝙴𝙳 𝙱𝚈 [𝐒𝐊𝐘](https://t.me/SKYSMSOWNER)** 🕋"
+        f"🕋 **𝙿𝙾𝚆𝙴𝚁𝙴𝙳 𝙱𝚈 [𝐒𝐊𝐘](https://t.me/SKYSMSOWNER)** 🕋"
     )
 
 def create_buttons(otp_code: str) -> InlineKeyboardMarkup:
@@ -168,7 +183,6 @@ async def send_telegram_otp(otp_code: str, phone: str, category: str):
 async def fetch_console_logs(session: aiohttp.ClientSession) -> list:
     url = f"{API_BASE_URL}/public/numsuccess/info"
     try:
-        # SSL Verification False করা হয়েছে নিরাপত্তার স্বার্থে যাতে এরর না আসে
         async with session.get(url, headers=HEADERS, timeout=10, ssl=False) as resp:
             if resp.status == 200:
                 data = await resp.json(content_type=None)
@@ -192,24 +206,33 @@ async def monitor_loop():
             if logs:
                 for log in reversed(logs):
                     base_id = str(log.get("nid") or log.get("id") or "") 
-                    sms_text = str(log.get("otp", ""))
                     
-                    # আইডি এবং এসএমএস টেক্সট মিলিয়ে ট্র্যাকিং - প্যানেলে একই কোড ২ বার আসলে গ্রুপেও ২ বার যাবে
-                    msg_id = f"{base_id}_{sms_text}" if base_id else sms_text
+                    # API থেকে ডাটা নেওয়া হচ্ছে
+                    raw_otp = str(log.get("otp", "")).strip()
+                    # প্যানেল থেকে ফুল মেসেজ নেওয়ার জন্য কমন ফিল্ডগুলো চেক করা হচ্ছে
+                    full_sms = str(log.get("sms") or log.get("message") or log.get("text") or log.get("full_text") or "")
+                    
+                    # যদি OTP "00" বা "0000" হয় অথবা ফাঁকা থাকে, তখন ফুল মেসেজ স্ক্যান করবে
+                    if re.match(r'^0+$', raw_otp) or not raw_otp:
+                        text_to_parse = full_sms
+                    else:
+                        text_to_parse = f"{raw_otp} {full_sms}"
+                    
+                    # ডুপ্লিকেট মেসেজ আটকানোর জন্য ID তৈরি
+                    msg_id = f"{base_id}_{text_to_parse}" if base_id else text_to_parse
                     
                     if msg_id and msg_id not in processed_ids:
-                        phone = log.get("number", "") # নতুন API এর ফিল্ড number
+                        phone = log.get("number", "") 
+                        raw_category = log.get("operator", "") 
                         
-                        # প্যানেল থেকে সার্ভিস খুঁজবে
-                        raw_category = log.get("operator") # নতুন API এর ফিল্ড operator
-                        
-                        # যদি কোনো সার্ভিস না পায় (ফাঁকা, Null বা Other থাকে), অটোমেটিক FACEBOOK ধরে নিবে
                         if not raw_category or str(raw_category).strip().lower() in ["null", "none", "", "other"]:
                             category = "FACEBOOK"
                         else:
                             category = str(raw_category).strip()
                         
-                        otp = extract_otp(sms_text)
+                        # আপডেট হওয়া extract_otp দিয়ে কোড বের করা হচ্ছে
+                        otp = extract_otp(text_to_parse)
+                        
                         if otp:
                             await send_telegram_otp(otp, phone, category)
                             processed_ids.append(msg_id)
